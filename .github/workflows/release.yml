@@ -1,0 +1,61 @@
+name: Release
+
+# Builds the StagShip Print Agent on Apple-hosted Mac runners (where macOS 14
+# Sonoma is still tolerant of `com.apple.provenance`, unlike Tahoe 26 which
+# blocks codesign locally) and on Windows. On a tag push, electron-builder
+# packages, signs + notarizes the Mac DMGs, and uploads everything (including
+# the `latest.yml` update manifests electron-updater needs) to the matching
+# GitHub Release.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write  # required so electron-builder can create / update the Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS
+          - os: windows-2022
+            label: Windows
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.label }})
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build + publish
+        env:
+          # GitHub token — used by electron-builder's `publish` config to
+          # create / update the Release for this tag and upload artifacts.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # macOS code-signing certificate (base64-encoded .p12) + password.
+          # Only set on the Mac runner; on Windows these env vars are unused.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+          # Apple notarization credentials (used by @electron/notarize via
+          # electron-builder's `mac.notarize` setting).
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          npm run build
+          npx electron-builder --publish always

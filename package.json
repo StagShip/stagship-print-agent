@@ -1,6 +1,6 @@
 {
   "name": "stagship-print-agent",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Local tray bridge that prints Stagship receipts (ESC/POS) and shipping labels (ZPL) to network printers.",
   "main": "dist/main.js",
   "private": true,
@@ -56,6 +56,7 @@
       "!**/*.map"
     ],
     "asar": true,
+    "afterPack": "./scripts/strip-xattrs.js",
     "publish": [
       {
         "provider": "github",
@@ -76,8 +77,13 @@
         }
       ],
       "category": "public.app-category.utilities",
-      "identity": null,
+      "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "5A7M8V32SK"
+      },
       "extendInfo": {
         "LSUIElement": true,
         "NSHighResolutionCapable": true
