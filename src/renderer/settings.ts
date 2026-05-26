@@ -6,14 +6,18 @@
 type AgentConfig = {
   printerIp?: string;
   printerPort?: number;
+  zebraPrinterIp?: string;
+  zebraPrinterPort?: number;
   autoStart?: boolean;
   lastPing?: "ok" | "fail";
+  lastZebraPing?: "ok" | "fail";
 };
 
 type Api = {
   getConfig(): Promise<AgentConfig>;
   saveConfig(patch: Partial<AgentConfig>): Promise<AgentConfig>;
   testPrint(): Promise<{ success: boolean; error?: string }>;
+  testLabelPrint(): Promise<{ success: boolean; error?: string }>;
   scanForPrinters(onProgress: (frac: number) => void): Promise<string[]>;
   getAutoStart(): Promise<boolean>;
 };
@@ -36,10 +40,19 @@ const statusEl = document.getElementById("status") as HTMLDivElement;
 const progressTrack = document.getElementById("progress-track") as HTMLDivElement;
 const progressBar = document.getElementById("progress-bar") as HTMLDivElement;
 
+const zipInput = document.getElementById("zip") as HTMLInputElement;
+const ztestBtn = document.getElementById("ztest") as HTMLButtonElement;
+const zsaveBtn = document.getElementById("zsave") as HTMLButtonElement;
+const zstatusEl = document.getElementById("zstatus") as HTMLDivElement;
+
 type StatusKind = "info" | "ok" | "error" | "empty";
 function setStatus(kind: StatusKind, text: string): void {
   statusEl.className = `status ${kind}`;
   statusEl.textContent = text || "\u00A0";
+}
+function setZStatus(kind: StatusKind, text: string): void {
+  zstatusEl.className = `status ${kind}`;
+  zstatusEl.textContent = text || "\u00A0";
 }
 
 function setProgress(visible: boolean, frac = 0): void {
@@ -55,6 +68,7 @@ function ipLooksValid(s: string): boolean {
 
 async function load(): Promise<void> {
   const cfg = await api.getConfig();
+
   if (cfg.printerIp) {
     ipInput.value = cfg.printerIp;
     setStatus(
@@ -64,8 +78,21 @@ async function load(): Promise<void> {
         : `Saved ${cfg.printerIp} — not currently reachable.`,
     );
   } else {
-    setStatus("info", "No printer configured. Tap Scan Network to find one.");
+    setStatus("info", "No receipt printer configured. Tap Scan Network to find one.");
   }
+
+  if (cfg.zebraPrinterIp) {
+    zipInput.value = cfg.zebraPrinterIp;
+    setZStatus(
+      cfg.lastZebraPing === "ok" ? "ok" : "info",
+      cfg.lastZebraPing === "ok"
+        ? `Connected to ${cfg.zebraPrinterIp}.`
+        : `Saved ${cfg.zebraPrinterIp} — not currently reachable.`,
+    );
+  } else {
+    setZStatus("info", "No label printer configured. Enter the Zebra's IP and tap Save.");
+  }
+
   autoStartChk.checked = await api.getAutoStart();
 }
 
@@ -150,6 +177,47 @@ async function test(): Promise<void> {
   }
 }
 
+async function zsave(): Promise<void> {
+  const ip = zipInput.value.trim();
+  if (!ipLooksValid(ip)) {
+    setZStatus("error", "That doesn't look like a valid IPv4 address.");
+    return;
+  }
+  zsaveBtn.disabled = true;
+  setZStatus("info", `Saving ${ip}…`);
+  try {
+    await api.saveConfig({ zebraPrinterIp: ip });
+    setZStatus("ok", `Saved ${ip}.`);
+  } catch (err) {
+    setZStatus("error", `Failed to save: ${(err as Error).message}`);
+  } finally {
+    zsaveBtn.disabled = false;
+  }
+}
+
+async function ztest(): Promise<void> {
+  const ip = zipInput.value.trim();
+  if (!ipLooksValid(ip)) {
+    setZStatus("error", "Enter a label printer IP first.");
+    return;
+  }
+  ztestBtn.disabled = true;
+  setZStatus("info", "Sending test label…");
+  try {
+    await api.saveConfig({ zebraPrinterIp: ip });
+    const result = await api.testLabelPrint();
+    if (result.success) {
+      setZStatus("ok", "Test label sent. Check the Zebra.");
+    } else {
+      setZStatus("error", `Test label failed: ${result.error ?? "unknown error"}`);
+    }
+  } catch (err) {
+    setZStatus("error", `Test label failed: ${(err as Error).message}`);
+  } finally {
+    ztestBtn.disabled = false;
+  }
+}
+
 scanBtn.addEventListener("click", (e) => {
   e.preventDefault();
   void scan();
@@ -164,6 +232,14 @@ testBtn.addEventListener("click", (e) => {
 });
 foundSelect.addEventListener("change", () => {
   ipInput.value = foundSelect.value;
+});
+zsaveBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  void zsave();
+});
+ztestBtn.addEventListener("click", (e) => {
+  e.preventDefault();
+  void ztest();
 });
 autoStartChk.addEventListener("change", () => {
   void api.saveConfig({ autoStart: autoStartChk.checked });

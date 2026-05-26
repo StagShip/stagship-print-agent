@@ -1,11 +1,12 @@
 /**
- * Local HTTP bridge — Stagship → Print Agent → Printer.
+ * Local HTTP bridge — Stagship → Print Agent → Printers.
  *
- *   POST /print  → forwards ESC/POS bytes to the configured printer over TCP
- *   GET  /status → reports the last reachability check + configured printer
+ *   POST /print        → ESC/POS bytes (base64) → Epson receipt printer (TCP 9100)
+ *   POST /print-label  → raw ZPL string         → Zebra label printer  (TCP 9100)
+ *   GET  /status       → connectivity + IPs for both printers
  *
  * The server binds to 127.0.0.1 only — never 0.0.0.0 — so no other host on
- * the LAN can drive the printer through this agent. CORS is allow-listed to
+ * the LAN can drive the printers through this agent. CORS is allow-listed to
  * the production Stagship origin and the localhost Next.js dev origin.
  */
 import express, { type Request, type Response, type NextFunction } from "express";
@@ -83,27 +84,77 @@ export function startServer(port = 12345): Promise<Server> {
     }
   });
 
+  app.post("/print-label", async (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as { zpl?: unknown };
+    if (typeof body.zpl !== "string" || body.zpl.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: "Missing or empty 'zpl' field (expected ZPL string).",
+      });
+      return;
+    }
+
+    const cfg = getConfig();
+    if (!cfg.zebraPrinterIp) {
+      res.status(503).json({
+        success: false,
+        error: "No label printer configured — open the agent and set the Zebra IP first.",
+      });
+      return;
+    }
+
+    // ZPL is plain ASCII text — send it as UTF-8 bytes (ASCII is a subset).
+    const bytes = Buffer.from(body.zpl, "utf8");
+
+    try {
+      await sendToPrinter(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, bytes);
+      saveConfig({ lastZebraPing: "ok" });
+      res.json({ success: true });
+    } catch (e) {
+      saveConfig({ lastZebraPing: "fail" });
+      res.status(502).json({ success: false, error: (e as Error).message });
+    }
+  });
+
   app.get("/status", async (_req, res) => {
     const cfg = getConfig();
-    if (!cfg.printerIp) {
-      res.json({ connected: false, printerIp: null });
-      return;
+
+    // Receipt printer (Epson)
+    let receiptConnected = false;
+    if (cfg.printerIp) {
+      receiptConnected = cfg.lastPing === "ok"
+        ? true
+        : await probeIp(cfg.printerIp, cfg.printerPort ?? 9100, 1_000);
+      saveConfig({ lastPing: receiptConnected ? "ok" : "fail" });
     }
-    // Trust the cached ping if the loop already updated it; otherwise probe.
-    const cachedOk = cfg.lastPing === "ok";
-    if (cachedOk) {
-      res.json({ connected: true, printerIp: cfg.printerIp });
-      return;
+
+    // Label printer (Zebra)
+    let labelConnected = false;
+    if (cfg.zebraPrinterIp) {
+      labelConnected = cfg.lastZebraPing === "ok"
+        ? true
+        : await probeIp(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, 1_000);
+      saveConfig({ lastZebraPing: labelConnected ? "ok" : "fail" });
     }
-    const ok = await probeIp(cfg.printerIp, cfg.printerPort ?? 9100, 1_000);
-    saveConfig({ lastPing: ok ? "ok" : "fail" });
-    res.json({ connected: ok, printerIp: cfg.printerIp });
+
+    res.json({
+      // Legacy single-printer fields kept for backward compatibility with the
+      // existing Stagship POS client that only looks at `connected` + `printerIp`.
+      connected: receiptConnected,
+      printerIp: cfg.printerIp ?? null,
+      // New per-device fields.
+      receipt: { connected: receiptConnected, ip: cfg.printerIp ?? null },
+      label:   { connected: labelConnected,   ip: cfg.zebraPrinterIp ?? null },
+    });
   });
 
   // Friendly root so a curious user hitting localhost:12345 sees something.
   app.get("/", (_req, res) => {
     res.type("text/plain").send(
-      "Stagship Print Agent — POST /print { receipt: base64 } or GET /status\n",
+      "Stagship Print Agent\n" +
+      "  POST /print        { receipt: base64-escpos } → Epson receipt printer\n" +
+      "  POST /print-label  { zpl: \"<zpl>\" }            → Zebra label printer\n" +
+      "  GET  /status                                  → connectivity per device\n",
     );
   });
 

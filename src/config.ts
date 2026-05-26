@@ -13,11 +13,17 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { dirname, join } from "path";
 
 export type AgentConfig = {
+  /** Receipt printer (Epson TM-m30III, ESC/POS over TCP). */
   printerIp?: string;
   printerPort?: number;
+  /** Label printer (Zebra ZD-series, ZPL over TCP). */
+  zebraPrinterIp?: string;
+  zebraPrinterPort?: number;
   autoStart?: boolean;
   /** Tracks the last reachability check so /status can answer instantly. */
   lastPing?: "ok" | "fail";
+  /** Last reachability check for the label printer. */
+  lastZebraPing?: "ok" | "fail";
 };
 
 let cached: AgentConfig | null = null;

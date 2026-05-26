@@ -5,9 +5,10 @@
  * No native deps (no `canvas`, no `sharp`) — just zlib + a hand-rolled CRC32
  * so this works during `npm install` on every platform without prebuilt
  * binaries. Output:
- *   assets/tray-green.png  32x32 anti-aliased green circle (transparent bg)
- *   assets/tray-red.png    32x32 anti-aliased red circle   (transparent bg)
- *   assets/icon.png        512x512 rounded-square app icon
+ *   assets/tray-green.png   32x32 anti-aliased green circle  (transparent bg)
+ *   assets/tray-yellow.png  32x32 anti-aliased amber circle  (transparent bg)
+ *   assets/tray-red.png     32x32 anti-aliased red circle    (transparent bg)
+ *   assets/icon.png         512x512 rounded-square app icon
  */
 const fs = require("fs");
 const path = require("path");
@@ -159,9 +160,10 @@ const assetsDir = path.join(__dirname, "..", "assets");
 fs.mkdirSync(assetsDir, { recursive: true });
 
 const outputs = [
-  ["tray-green.png", makeCircle(32, 16, 185, 129)],   // emerald-500
-  ["tray-red.png",   makeCircle(32, 220, 38, 38)],    // red-600
-  ["icon.png",       makeAppIcon(512)],
+  ["tray-green.png",  makeCircle(32,  16, 185, 129)],   // emerald-500 — both reachable
+  ["tray-yellow.png", makeCircle(32, 245, 158,  11)],   // amber-500   — one reachable
+  ["tray-red.png",    makeCircle(32, 220,  38,  38)],   // red-600     — neither reachable
+  ["icon.png",        makeAppIcon(512)],
 ];
 
 for (const [name, buf] of outputs) {

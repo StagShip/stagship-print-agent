@@ -9,8 +9,11 @@ import { contextBridge, ipcRenderer } from "electron";
 export type AgentConfig = {
   printerIp?: string;
   printerPort?: number;
+  zebraPrinterIp?: string;
+  zebraPrinterPort?: number;
   autoStart?: boolean;
   lastPing?: "ok" | "fail";
+  lastZebraPing?: "ok" | "fail";
 };
 
 const api = {
@@ -19,6 +22,8 @@ const api = {
     ipcRenderer.invoke("config:save", patch),
   testPrint: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke("printer:test"),
+  testLabelPrint: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke("printer:test-label"),
   /**
    * Sweep the LAN for printers. The progress callback fires with 0..1 as
    * the sweep advances; resolve fires once with the list of IPs found.

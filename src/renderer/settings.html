@@ -185,7 +185,7 @@
     <p class="sub">Local bridge between Stagship and your receipt printer.</p>
 
     <div class="card">
-      <label class="field" for="ip">Printer IP address</label>
+      <label class="field" for="ip">Receipt printer IP (Epson — ESC/POS)</label>
       <div class="row">
         <input id="ip" type="text" inputmode="numeric" placeholder="192.168.1.32" autocomplete="off" spellcheck="false" />
       </div>
@@ -207,6 +207,20 @@
       <div id="status" class="status empty">&nbsp;</div>
     </div>
 
+    <div class="card">
+      <label class="field" for="zip">Label printer IP (Zebra — ZPL)</label>
+      <div class="row">
+        <input id="zip" type="text" inputmode="numeric" placeholder="192.168.1.40" autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="actions">
+        <button id="ztest" type="button">Test Label</button>
+        <button id="zsave" type="button" class="primary">Save</button>
+      </div>
+
+      <div id="zstatus" class="status empty">&nbsp;</div>
+    </div>
+
     <div class="card switch-row">
       <div class="label-block">
         <strong>Start on login</strong>
@@ -216,7 +230,8 @@
     </div>
 
     <p class="footer">
-      Listening on <code>http://localhost:12345</code> — agent forwards to the printer on TCP <code>:9100</code>.
+      Listening on <code>http://localhost:12345</code> — forwards to printers on TCP <code>:9100</code>.<br/>
+      Endpoints: <code>POST /print</code> (ESC/POS) · <code>POST /print-label</code> (ZPL) · <code>GET /status</code>
     </p>
   </div>
 

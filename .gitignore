@@ -2,6 +2,7 @@ node_modules/
 dist/
 release/
 assets/tray-green.png
+assets/tray-yellow.png
 assets/tray-red.png
 assets/icon.png
 *.log

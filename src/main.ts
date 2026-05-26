@@ -16,6 +16,7 @@ import {
   shell,
   dialog,
 } from "electron";
+import { autoUpdater } from "electron-updater";
 import path from "path";
 import type { Server } from "http";
 
@@ -26,19 +27,26 @@ import { startServer } from "./server";
 
 const HTTP_PORT = 12345;
 const PING_INTERVAL_MS = 30_000;
+/** Re-check GitHub for a newer release every 6 hours after the startup check. */
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 // Icons live alongside the source tree. After packaging, electron-builder
 // copies `assets/` into the app.asar and __dirname resolves inside that
 // archive — Electron's patched fs handles the asar reads transparently.
 const ASSETS_DIR = path.join(__dirname, "..", "assets");
-const TRAY_GREEN = path.join(ASSETS_DIR, "tray-green.png");
-const TRAY_RED = path.join(ASSETS_DIR, "tray-red.png");
+const TRAY_GREEN  = path.join(ASSETS_DIR, "tray-green.png");
+const TRAY_YELLOW = path.join(ASSETS_DIR, "tray-yellow.png");
+const TRAY_RED    = path.join(ASSETS_DIR, "tray-red.png");
+
+/** Tray state derived from both printers' reachability. */
+type TrayState = "green" | "yellow" | "red";
 
 let tray: Tray | null = null;
 let settingsWin: BrowserWindow | null = null;
 let httpServer: Server | null = null;
 let pingTimer: NodeJS.Timeout | null = null;
-let printerOnline = false;
+let receiptOnline = false;
+let labelOnline = false;
 
 // ── Single-instance lock ───────────────────────────────────────────────────
 // If the user double-clicks the tray app while it's already running, just
@@ -81,6 +89,42 @@ async function init(): Promise<void> {
   createTray();
   await startHttpServer();
   schedulePingLoop();
+  scheduleAutoUpdates();
+}
+
+// ── Auto-update via GitHub Releases ───────────────────────────────────────
+// electron-updater downloads the latest `latest.yml` + matching .exe / .dmg
+// from the GitHub release marked "latest" for the repo declared in
+// package.json#build.publish, verifies the SHA-512, and applies on quit.
+// All notifications are suppressed — updates install silently in the
+// background, then take effect the next time the user (or login auto-start)
+// launches the agent.
+function scheduleAutoUpdates(): void {
+  if (!app.isPackaged) {
+    // Skip in dev: electron-updater requires a real Squirrel/NSIS install dir
+    // and a signed app-update.yml shipped by electron-builder.
+    return;
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowPrerelease = false;
+
+  autoUpdater.on("error", (err) => console.error("[autoUpdater]", err));
+  autoUpdater.on("update-available", (info) =>
+    console.log(`[autoUpdater] update ${info.version} available — downloading`),
+  );
+  autoUpdater.on("update-downloaded", (info) =>
+    console.log(`[autoUpdater] ${info.version} downloaded — will install on quit`),
+  );
+
+  // Initial check ~5s after startup so the UI is responsive first.
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((e) => console.error("[autoUpdater]", e));
+  }, 5_000);
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch((e) => console.error("[autoUpdater]", e));
+  }, UPDATE_CHECK_INTERVAL_MS);
 }
 
 // ── Auto-start on login ───────────────────────────────────────────────────
@@ -99,14 +143,40 @@ async function applyAutoStartFromConfig(): Promise<void> {
 }
 
 // ── Tray ──────────────────────────────────────────────────────────────────
-function trayImage(online: boolean): Electron.NativeImage {
+/**
+ * Derive a tri-state tray colour from the two printers' reachability,
+ * but only count printers the user has actually configured. If both are
+ * unconfigured, we show red (nothing to do).
+ *   green   — every configured printer is reachable
+ *   yellow  — at least one reachable, at least one unreachable
+ *   red     — nothing reachable (or nothing configured)
+ */
+function computeTrayState(): TrayState {
+  const cfg = getConfig();
+  const hasReceipt = !!cfg.printerIp;
+  const hasLabel   = !!cfg.zebraPrinterIp;
+  if (!hasReceipt && !hasLabel) return "red";
+
+  const receiptOk = hasReceipt && receiptOnline;
+  const labelOk   = hasLabel   && labelOnline;
+  const receiptBad = hasReceipt && !receiptOnline;
+  const labelBad   = hasLabel   && !labelOnline;
+
+  if ((receiptOk || !hasReceipt) && (labelOk || !hasLabel)) return "green";
+  if (receiptOk || labelOk) return "yellow";
+  if (receiptBad || labelBad) return "red";
+  return "red";
+}
+
+function trayImage(state: TrayState): Electron.NativeImage {
+  const file = state === "green" ? TRAY_GREEN : state === "yellow" ? TRAY_YELLOW : TRAY_RED;
   return nativeImage
-    .createFromPath(online ? TRAY_GREEN : TRAY_RED)
+    .createFromPath(file)
     .resize({ width: 16, height: 16, quality: "best" });
 }
 
 function createTray(): void {
-  tray = new Tray(trayImage(false));
+  tray = new Tray(trayImage("red"));
   tray.setToolTip("Stagship Print Agent");
   rebuildMenu();
   // On Windows, left-click should open the menu; on macOS it already does.
@@ -119,15 +189,27 @@ function createTray(): void {
 function rebuildMenu(): void {
   if (!tray) return;
   const cfg = getConfig();
-  const statusLabel = !cfg.printerIp
-    ? "No printer configured"
-    : printerOnline
-      ? `Online — ${cfg.printerIp}`
-      : `Offline — ${cfg.printerIp}`;
+
+  const receiptLabel = !cfg.printerIp
+    ? "Receipt printer: not configured"
+    : receiptOnline
+      ? `Receipt: online — ${cfg.printerIp}`
+      : `Receipt: offline — ${cfg.printerIp}`;
+  const labelLabel = !cfg.zebraPrinterIp
+    ? "Label printer: not configured"
+    : labelOnline
+      ? `Label: online — ${cfg.zebraPrinterIp}`
+      : `Label: offline — ${cfg.zebraPrinterIp}`;
+
+  const state = computeTrayState();
+  const stateText = state === "green" ? "All printers online" : state === "yellow" ? "Some printers offline" : "Printers offline";
 
   const menu = Menu.buildFromTemplate([
     { label: "Stagship Print Agent", enabled: false },
-    { label: statusLabel, enabled: false },
+    { label: stateText, enabled: false },
+    { type: "separator" },
+    { label: receiptLabel, enabled: false },
+    { label: labelLabel, enabled: false },
     { type: "separator" },
     { label: "Settings…", click: () => openSettings() },
     {
@@ -144,18 +226,26 @@ function rebuildMenu(): void {
     { label: "Quit", click: () => quitApp() },
   ]);
   tray.setContextMenu(menu);
-  tray.setToolTip(`Stagship Print Agent — ${statusLabel}`);
+  tray.setToolTip(`Stagship Print Agent — ${stateText}`);
 }
 
-function setPrinterStatus(online: boolean): void {
-  if (printerOnline === online) {
-    rebuildMenu();
-    return;
-  }
-  printerOnline = online;
-  saveConfig({ lastPing: online ? "ok" : "fail" });
-  if (tray) tray.setImage(trayImage(online));
+function refreshTrayAppearance(): void {
+  if (tray) tray.setImage(trayImage(computeTrayState()));
   rebuildMenu();
+}
+
+function setReceiptStatus(online: boolean): void {
+  const changed = receiptOnline !== online;
+  receiptOnline = online;
+  if (changed) saveConfig({ lastPing: online ? "ok" : "fail" });
+  refreshTrayAppearance();
+}
+
+function setLabelStatus(online: boolean): void {
+  const changed = labelOnline !== online;
+  labelOnline = online;
+  if (changed) saveConfig({ lastZebraPing: online ? "ok" : "fail" });
+  refreshTrayAppearance();
 }
 
 // ── Settings window ───────────────────────────────────────────────────────
@@ -213,18 +303,23 @@ async function startHttpServer(): Promise<void> {
 }
 
 // ── Ping loop ─────────────────────────────────────────────────────────────
+async function pingBoth(): Promise<void> {
+  const cfg = getConfig();
+
+  const receiptOk = cfg.printerIp
+    ? await probeIp(cfg.printerIp, cfg.printerPort ?? 9100, 1_500)
+    : false;
+  setReceiptStatus(receiptOk);
+
+  const labelOk = cfg.zebraPrinterIp
+    ? await probeIp(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, 1_500)
+    : false;
+  setLabelStatus(labelOk);
+}
+
 function schedulePingLoop(): void {
-  const ping = async () => {
-    const cfg = getConfig();
-    if (!cfg.printerIp) {
-      setPrinterStatus(false);
-      return;
-    }
-    const ok = await probeIp(cfg.printerIp, cfg.printerPort ?? 9100, 1_500);
-    setPrinterStatus(ok);
-  };
-  void ping();
-  pingTimer = setInterval(ping, PING_INTERVAL_MS);
+  void pingBoth();
+  pingTimer = setInterval(() => void pingBoth(), PING_INTERVAL_MS);
 }
 
 // ── Test print ────────────────────────────────────────────────────────────
@@ -236,10 +331,45 @@ async function runTestPrint(): Promise<{ success: boolean; error?: string }> {
   }
   try {
     await sendToPrinter(cfg.printerIp, cfg.printerPort ?? 9100, buildTestReceiptBytes(), 5_000);
-    setPrinterStatus(true);
+    setReceiptStatus(true);
     return { success: true };
   } catch (err) {
-    setPrinterStatus(false);
+    setReceiptStatus(false);
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/** Minimal ZPL "self-test" sticker so the user can confirm the Zebra is alive. */
+function buildTestLabelZpl(): string {
+  return [
+    "^XA",
+    "^CF0,50",
+    "^FO40,40^FDSTAGSHIP^FS",
+    "^CF0,28",
+    "^FO40,110^FDPrint Agent test label^FS",
+    "^FO40,160^FD" + new Date().toLocaleString() + "^FS",
+    "^FO40,220^FDIf you see this, the Zebra is connected.^FS",
+    "^XZ",
+  ].join("\n");
+}
+
+async function runTestLabel(): Promise<{ success: boolean; error?: string }> {
+  const cfg = getConfig();
+  if (!cfg.zebraPrinterIp) {
+    openSettings();
+    return { success: false, error: "No label printer configured." };
+  }
+  try {
+    await sendToPrinter(
+      cfg.zebraPrinterIp,
+      cfg.zebraPrinterPort ?? 9100,
+      Buffer.from(buildTestLabelZpl(), "utf8"),
+      5_000,
+    );
+    setLabelStatus(true);
+    return { success: true };
+  } catch (err) {
+    setLabelStatus(false);
     return { success: false, error: (err as Error).message };
   }
 }
@@ -250,24 +380,22 @@ ipcMain.handle("config:get", () => getConfig());
 ipcMain.handle("config:save", async (_e, patch: Record<string, unknown>) => {
   // Whitelist what the renderer can change — never let it write arbitrary keys.
   const safe: Record<string, unknown> = {};
-  if (typeof patch.printerIp === "string") safe.printerIp = patch.printerIp.trim();
-  if (typeof patch.printerPort === "number") safe.printerPort = patch.printerPort;
+  if (typeof patch.printerIp === "string")        safe.printerIp        = patch.printerIp.trim();
+  if (typeof patch.printerPort === "number")      safe.printerPort      = patch.printerPort;
+  if (typeof patch.zebraPrinterIp === "string")   safe.zebraPrinterIp   = patch.zebraPrinterIp.trim();
+  if (typeof patch.zebraPrinterPort === "number") safe.zebraPrinterPort = patch.zebraPrinterPort;
   if (typeof patch.autoStart === "boolean") {
     safe.autoStart = patch.autoStart;
     app.setLoginItemSettings({ openAtLogin: patch.autoStart, openAsHidden: true });
   }
   const next = saveConfig(safe);
   // Re-ping immediately so the tray flips colour without waiting 30s.
-  if (next.printerIp) {
-    const ok = await probeIp(next.printerIp, next.printerPort ?? 9100, 1_500);
-    setPrinterStatus(ok);
-  } else {
-    setPrinterStatus(false);
-  }
+  await pingBoth();
   return next;
 });
 
 ipcMain.handle("printer:test", () => runTestPrint());
+ipcMain.handle("printer:test-label", () => runTestLabel());
 
 ipcMain.handle("printer:scan", async (event) => {
   const send = (frac: number) => {
