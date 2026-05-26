@@ -1,6 +1,6 @@
 {
   "name": "stagship-print-agent",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local tray bridge that prints Stagship receipts (ESC/POS) and shipping labels (ZPL) to network printers.",
   "main": "dist/main.js",
   "private": true,
