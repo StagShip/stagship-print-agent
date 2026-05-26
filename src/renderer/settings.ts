@@ -20,6 +20,7 @@ type Api = {
   testLabelPrint(): Promise<{ success: boolean; error?: string }>;
   scanForPrinters(onProgress: (frac: number) => void): Promise<string[]>;
   getAutoStart(): Promise<boolean>;
+  getVersion(): Promise<string>;
 };
 
 declare global {
@@ -44,6 +45,7 @@ const zipInput = document.getElementById("zip") as HTMLInputElement;
 const ztestBtn = document.getElementById("ztest") as HTMLButtonElement;
 const zsaveBtn = document.getElementById("zsave") as HTMLButtonElement;
 const zstatusEl = document.getElementById("zstatus") as HTMLDivElement;
+const versionEl = document.getElementById("version") as HTMLParagraphElement;
 
 type StatusKind = "info" | "ok" | "error" | "empty";
 function setStatus(kind: StatusKind, text: string): void {
@@ -94,6 +96,13 @@ async function load(): Promise<void> {
   }
 
   autoStartChk.checked = await api.getAutoStart();
+
+  try {
+    const version = await api.getVersion();
+    versionEl.textContent = `Version ${version}`;
+  } catch {
+    versionEl.textContent = "\u00A0";
+  }
 }
 
 async function scan(): Promise<void> {

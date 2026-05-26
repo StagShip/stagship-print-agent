@@ -185,6 +185,13 @@
       border-radius: 4px;
       font-size: 11px;
     }
+    .version {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      opacity: 0.75;
+    }
     .dot {
       display: inline-block;
       width: 8px;
@@ -254,6 +261,8 @@
       Listening on <code>http://localhost:12345</code> — forwards to printers on TCP <code>:9100</code>.<br/>
       Endpoints: <code>POST /print</code> (ESC/POS) · <code>POST /print-label</code> (ZPL) · <code>GET /status</code>
     </p>
+
+    <p class="version" id="version">&nbsp;</p>
   </div>
 
   <script type="module" src="settings.js"></script>

@@ -36,6 +36,7 @@ const api = {
     });
   },
   getAutoStart: (): Promise<boolean> => ipcRenderer.invoke("autostart:get"),
+  getVersion: (): Promise<string> => ipcRenderer.invoke("app:get-version"),
 };
 
 contextBridge.exposeInMainWorld("api", api);

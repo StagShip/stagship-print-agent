@@ -258,9 +258,9 @@ function openSettings(): void {
   }
   settingsWin = new BrowserWindow({
     width: 520,
-    // Sized so the logo + tagline + 3 cards + footer fit without a scrollbar
-    // on Windows (where the title bar eats ~32px of the window height).
-    height: 870,
+    // Sized so the logo + tagline + 3 cards + footer + version line fit
+    // without a scrollbar on Windows (where the title bar eats ~32px).
+    height: 900,
     title: "Stagship Print Agent",
     resizable: false,
     minimizable: true,
@@ -409,6 +409,8 @@ ipcMain.handle("printer:scan", async (event) => {
 });
 
 ipcMain.handle("autostart:get", () => app.getLoginItemSettings().openAtLogin);
+
+ipcMain.handle("app:get-version", () => app.getVersion());
 
 // ── Quit ──────────────────────────────────────────────────────────────────
 function quitApp(): void {
