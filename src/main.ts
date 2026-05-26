@@ -258,7 +258,9 @@ function openSettings(): void {
   }
   settingsWin = new BrowserWindow({
     width: 520,
-    height: 680,
+    // Sized so the logo + tagline + 3 cards + footer fit without a scrollbar
+    // on Windows (where the title bar eats ~32px of the window height).
+    height: 870,
     title: "Stagship Print Agent",
     resizable: false,
     minimizable: true,
