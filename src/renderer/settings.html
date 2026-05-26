@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:;" />
+  <title>Stagship Print Agent</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-2: #334155;
+      --border: #475569;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .wrap { padding: 24px 28px 32px; }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 4px;
+      letter-spacing: 0.2px;
+    }
+    .sub { color: var(--muted); margin: 0 0 20px; font-size: 12px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+    }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .row + .row { margin-top: 10px; }
+    label.field {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+    input[type="text"], select {
+      width: 100%;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      outline: none;
+    }
+    input[type="text"]:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+    }
+    select { cursor: pointer; }
+    button {
+      cursor: pointer;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      transition: background 80ms ease, transform 80ms ease;
+    }
+    button:hover:not(:disabled) { background: #475569; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #04231a;
+    }
+    button.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .actions { display: flex; gap: 8px; margin-top: 14px; }
+    .actions button { flex: 1; }
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      min-height: 18px;
+    }
+    .status.info { background: rgba(56, 189, 248, 0.15); color: #7dd3fc; }
+    .status.ok { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+    .status.error { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+    .status.empty { background: transparent; color: var(--muted); }
+    .progress-track {
+      height: 4px;
+      background: var(--bg);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 10px;
+      display: none;
+    }
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 120ms linear;
+    }
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .switch-row .label-block strong { display: block; font-weight: 600; }
+    .switch-row .label-block span { color: var(--muted); font-size: 12px; }
+    input[type="checkbox"] {
+      appearance: none;
+      width: 38px;
+      height: 22px;
+      background: var(--panel-2);
+      border-radius: 999px;
+      position: relative;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      transition: background 120ms ease;
+      flex-shrink: 0;
+    }
+    input[type="checkbox"]::after {
+      content: "";
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--text);
+      top: 2px;
+      left: 2px;
+      transition: left 120ms ease;
+    }
+    input[type="checkbox"]:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    input[type="checkbox"]:checked::after { left: 18px; }
+    .footer {
+      margin-top: 16px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .footer code {
+      background: var(--panel);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .dot.green { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+    .dot.red { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Stagship Print Agent</h1>
+    <p class="sub">Local bridge between Stagship and your receipt printer.</p>
+
+    <div class="card">
+      <label class="field" for="ip">Printer IP address</label>
+      <div class="row">
+        <input id="ip" type="text" inputmode="numeric" placeholder="192.168.1.32" autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="row" style="margin-top: 8px;">
+        <select id="found" style="display: none;"></select>
+      </div>
+
+      <div class="actions">
+        <button id="scan" type="button">Scan Network</button>
+        <button id="test" type="button">Test Print</button>
+        <button id="save" type="button" class="primary">Save</button>
+      </div>
+
+      <div class="progress-track" id="progress-track">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <div id="status" class="status empty">&nbsp;</div>
+    </div>
+
+    <div class="card switch-row">
+      <div class="label-block">
+        <strong>Start on login</strong>
+        <span>Launch the print agent silently when this computer starts up.</span>
+      </div>
+      <input id="autostart" type="checkbox" />
+    </div>
+
+    <p class="footer">
+      Listening on <code>http://localhost:12345</code> — agent forwards to the printer on TCP <code>:9100</code>.
+    </p>
+  </div>
+
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

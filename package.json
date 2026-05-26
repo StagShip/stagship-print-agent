@@ -1,0 +1,88 @@
+{
+  "name": "stagship-print-agent",
+  "version": "1.0.0",
+  "description": "Local tray bridge that prints Stagship receipts to a network Epson TM-m30III via raw TCP (port 9100).",
+  "main": "dist/main.js",
+  "private": true,
+  "scripts": {
+    "build:assets": "node scripts/generate-icons.js",
+    "build:html": "node scripts/copy-html.js",
+    "build:main": "tsc -p tsconfig.json",
+    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "build": "npm run build:assets && npm run build:main && npm run build:renderer && npm run build:html",
+    "rebuild": "rimraf dist && npm run build",
+    "start": "npm run build && electron dist/main.js",
+    "dev": "npm run start",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:all": "npm run build && electron-builder -mw"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.5.0",
+    "electron": "^42.2.0",
+    "electron-builder": "^25.1.8",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  },
+  "build": {
+    "appId": "com.stagship.printagent",
+    "productName": "Stagship Print Agent",
+    "copyright": "Copyright © 2026 Stagship",
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json",
+      "!**/*.ts",
+      "!**/*.map"
+    ],
+    "asar": true,
+    "mac": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities",
+      "extendInfo": {
+        "LSUIElement": true,
+        "NSHighResolutionCapable": true
+      }
+    },
+    "dmg": {
+      "title": "Stagship Print Agent"
+    },
+    "win": {
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Stagship Print Agent"
+    }
+  }
+}
