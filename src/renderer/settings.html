@@ -31,12 +31,26 @@
       -webkit-user-select: none;
     }
     .wrap { padding: 24px 28px 32px; }
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      margin: 0 0 18px;
+    }
+    .logo {
+      width: 160px;
+      height: auto;
+      object-fit: contain;
+      -webkit-user-drag: none;
+      user-select: none;
+      pointer-events: none;
+    }
     h1 {
       font-size: 18px;
       margin: 0 0 4px;
       letter-spacing: 0.2px;
+      text-align: center;
     }
-    .sub { color: var(--muted); margin: 0 0 20px; font-size: 12px; }
+    .sub { color: var(--muted); margin: 0 0 20px; font-size: 12px; text-align: center; }
     .card {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -181,6 +195,9 @@
 </head>
 <body>
   <div class="wrap">
+    <div class="logo-wrap">
+      <img src="stagship-logo.png" alt="StagShip" class="logo" />
+    </div>
     <h1>Stagship Print Agent</h1>
     <p class="sub">Local bridge between Stagship and your receipt printer.</p>
 

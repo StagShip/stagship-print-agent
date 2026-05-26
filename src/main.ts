@@ -258,7 +258,7 @@ function openSettings(): void {
   }
   settingsWin = new BrowserWindow({
     width: 520,
-    height: 600,
+    height: 680,
     title: "Stagship Print Agent",
     resizable: false,
     minimizable: true,
