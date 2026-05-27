@@ -1,11 +1,10 @@
 name: Release
 
-# Builds the StagShip Print Agent on Apple-hosted Mac runners (where macOS 14
-# Sonoma is still tolerant of `com.apple.provenance`, unlike Tahoe 26 which
-# blocks codesign locally) and on Windows. On a tag push, electron-builder
-# packages, signs + notarizes the Mac DMGs, and uploads everything (including
-# the `latest.yml` update manifests electron-updater needs) to the matching
-# GitHub Release.
+# Builds the StagShip Print Agent on Windows (NSIS installer with
+# @thiagoelg/node-printer compiled natively for Electron) and on Apple-hosted
+# Mac runners (DMGs, signed + notarized). On a tag push, electron-builder
+# packages and uploads everything — including the `latest.yml` manifests that
+# electron-updater needs — to the matching GitHub Release.
 
 on:
   push:
@@ -16,17 +15,39 @@ permissions:
   contents: write  # required so electron-builder can create / update the Release
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            label: macOS
-          - os: windows-2022
-            label: Windows
-    runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.label }})
+  build-windows:
+    runs-on: windows-2022
+    name: Build (Windows)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Recompile native addons (e.g. @thiagoelg/node-printer) against
+      # Electron's own Node headers so the .node binary matches the runtime.
+      # This is the step that produces the correct win32/x64 .node file that
+      # gets extracted by asarUnpack at install time.
+      - name: Rebuild native addons for Electron
+        run: npx electron-builder install-app-deps
+
+      - name: Build + publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm run build
+          npx electron-builder --win --publish always
+
+  build-mac:
+    runs-on: macos-14
+    name: Build (macOS)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,18 +63,12 @@ jobs:
 
       - name: Build + publish
         env:
-          # GitHub token — used by electron-builder's `publish` config to
-          # create / update the Release for this tag and upload artifacts.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-          # Mac-only: code-signing cert + Apple notarization credentials.
-          # Empty-string on Windows so SignTool doesn't try to use the Apple
-          # .p12 (which would fail with "Multiple certificates were found").
-          CSC_LINK: ${{ matrix.os == 'macos-14' && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.os == 'macos-14' && secrets.CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ matrix.os == 'macos-14' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ matrix.os == 'macos-14' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.os == 'macos-14' && secrets.APPLE_TEAM_ID || '' }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm run build
-          npx electron-builder --publish always
+          npx electron-builder --mac --publish always
