@@ -25,6 +25,28 @@ import { sendToPrinter, probeIp, buildTestReceiptBytes } from "./printer";
 import { discoverPrinters } from "./discovery";
 import { startServer } from "./server";
 
+/** Minimal shape of the node-printer native addon used for USB/driver printing. */
+interface NodePrinterModule {
+  getPrinters(): Array<{ name: string; [key: string]: unknown }>;
+  printDirect(opts: {
+    data: string | Buffer;
+    printer?: string;
+    type: string;
+    success: (jobId: string) => void;
+    error: (err: Error) => void;
+  }): void;
+}
+
+function tryLoadNodePrinter(): NodePrinterModule | null {
+  if (process.platform !== "win32") return null;
+  try {
+    // Optional native addon — only compiled on Windows via electron-rebuild.
+    return require("@thiagoelg/node-printer") as NodePrinterModule;
+  } catch {
+    return null;
+  }
+}
+
 const HTTP_PORT = 12345;
 const PING_INTERVAL_MS = 30_000;
 /** Re-check GitHub for a newer release every 6 hours after the startup check. */
@@ -154,7 +176,9 @@ async function applyAutoStartFromConfig(): Promise<void> {
 function computeTrayState(): TrayState {
   const cfg = getConfig();
   const hasReceipt = !!cfg.printerIp;
-  const hasLabel   = !!cfg.zebraPrinterIp;
+  const hasLabel   = (cfg.zebraPrintMode ?? "usb") === "usb"
+    ? !!cfg.zebraPrinterName
+    : !!cfg.zebraPrinterIp;
   if (!hasReceipt && !hasLabel) return "red";
 
   const receiptOk = hasReceipt && receiptOnline;
@@ -195,11 +219,15 @@ function rebuildMenu(): void {
     : receiptOnline
       ? `Receipt: online — ${cfg.printerIp}`
       : `Receipt: offline — ${cfg.printerIp}`;
-  const labelLabel = !cfg.zebraPrinterIp
+
+  const zebraMode = cfg.zebraPrintMode ?? "usb";
+  const zebraIsUsb = zebraMode === "usb";
+  const zebraIdentifier = zebraIsUsb ? cfg.zebraPrinterName : cfg.zebraPrinterIp;
+  const labelLabel = !zebraIdentifier
     ? "Label printer: not configured"
     : labelOnline
-      ? `Label: online — ${cfg.zebraPrinterIp}`
-      : `Label: offline — ${cfg.zebraPrinterIp}`;
+      ? `Label: online — ${zebraIdentifier}`
+      : `Label: offline — ${zebraIdentifier}`;
 
   const state = computeTrayState();
   const stateText = state === "green" ? "All printers online" : state === "yellow" ? "Some printers offline" : "Printers offline";
@@ -258,9 +286,9 @@ function openSettings(): void {
   }
   settingsWin = new BrowserWindow({
     width: 520,
-    // Sized so the logo + tagline + 3 cards + footer + version line fit
-    // without a scrollbar on Windows (where the title bar eats ~32px).
-    height: 900,
+    // Sized so the logo + tagline + 3 cards (including Zebra mode toggle) +
+    // footer + version line fit without a scrollbar on Windows (~32px title bar).
+    height: 960,
     title: "Stagship Print Agent",
     resizable: false,
     minimizable: true,
@@ -313,9 +341,16 @@ async function pingBoth(): Promise<void> {
     : false;
   setReceiptStatus(receiptOk);
 
-  const labelOk = cfg.zebraPrinterIp
-    ? await probeIp(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, 1_500)
-    : false;
+  let labelOk: boolean;
+  if ((cfg.zebraPrintMode ?? "usb") === "usb") {
+    // USB/driver mode: treat the printer as reachable when a name is configured.
+    // There is no meaningful TCP probe for a spooler-managed printer.
+    labelOk = !!cfg.zebraPrinterName;
+  } else {
+    labelOk = cfg.zebraPrinterIp
+      ? await probeIp(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, 1_500)
+      : false;
+  }
   setLabelStatus(labelOk);
 }
 
@@ -357,22 +392,53 @@ function buildTestLabelZpl(): string {
 
 async function runTestLabel(): Promise<{ success: boolean; error?: string }> {
   const cfg = getConfig();
-  if (!cfg.zebraPrinterIp) {
-    openSettings();
-    return { success: false, error: "No label printer configured." };
-  }
-  try {
-    await sendToPrinter(
-      cfg.zebraPrinterIp,
-      cfg.zebraPrinterPort ?? 9100,
-      Buffer.from(buildTestLabelZpl(), "utf8"),
-      5_000,
-    );
-    setLabelStatus(true);
-    return { success: true };
-  } catch (err) {
-    setLabelStatus(false);
-    return { success: false, error: (err as Error).message };
+  const mode = cfg.zebraPrintMode ?? "usb";
+
+  if (mode === "usb") {
+    if (!cfg.zebraPrinterName) {
+      openSettings();
+      return { success: false, error: "No USB label printer configured." };
+    }
+    const np = tryLoadNodePrinter();
+    if (!np) {
+      return process.platform !== "win32"
+        ? { success: false, error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine." }
+        : { success: false, error: "node-printer module not available — please reinstall the Print Agent." };
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        np.printDirect({
+          data: buildTestLabelZpl(),
+          printer: cfg.zebraPrinterName,
+          type: "RAW",
+          success: () => resolve(),
+          error: (err) => reject(err),
+        });
+      });
+      setLabelStatus(true);
+      return { success: true };
+    } catch (err) {
+      setLabelStatus(false);
+      return { success: false, error: (err as Error).message };
+    }
+  } else {
+    if (!cfg.zebraPrinterIp) {
+      openSettings();
+      return { success: false, error: "No label printer IP configured." };
+    }
+    try {
+      await sendToPrinter(
+        cfg.zebraPrinterIp,
+        cfg.zebraPrinterPort ?? 9100,
+        Buffer.from(buildTestLabelZpl(), "utf8"),
+        5_000,
+      );
+      setLabelStatus(true);
+      return { success: true };
+    } catch (err) {
+      setLabelStatus(false);
+      return { success: false, error: (err as Error).message };
+    }
   }
 }
 
@@ -384,6 +450,10 @@ ipcMain.handle("config:save", async (_e, patch: Record<string, unknown>) => {
   const safe: Record<string, unknown> = {};
   if (typeof patch.printerIp === "string")        safe.printerIp        = patch.printerIp.trim();
   if (typeof patch.printerPort === "number")      safe.printerPort      = patch.printerPort;
+  if (patch.zebraPrintMode === "usb" || patch.zebraPrintMode === "ip") {
+    safe.zebraPrintMode = patch.zebraPrintMode;
+  }
+  if (typeof patch.zebraPrinterName === "string") safe.zebraPrinterName = patch.zebraPrinterName.trim();
   if (typeof patch.zebraPrinterIp === "string")   safe.zebraPrinterIp   = patch.zebraPrinterIp.trim();
   if (typeof patch.zebraPrinterPort === "number") safe.zebraPrinterPort = patch.zebraPrinterPort;
   if (typeof patch.autoStart === "boolean") {
@@ -398,6 +468,16 @@ ipcMain.handle("config:save", async (_e, patch: Record<string, unknown>) => {
 
 ipcMain.handle("printer:test", () => runTestPrint());
 ipcMain.handle("printer:test-label", () => runTestLabel());
+
+ipcMain.handle("printer:list", (): string[] => {
+  const np = tryLoadNodePrinter();
+  if (!np) return [];
+  try {
+    return np.getPrinters().map((p) => p.name);
+  } catch {
+    return [];
+  }
+});
 
 ipcMain.handle("printer:scan", async (event) => {
   const send = (frac: number) => {

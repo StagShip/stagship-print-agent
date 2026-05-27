@@ -26,9 +26,11 @@
     "dist": "npm run build && electron-builder",
     "dist:mac": "npm run build && electron-builder --mac",
     "dist:win": "npm run build && electron-builder --win",
-    "dist:all": "npm run build && electron-builder -mw"
+    "dist:all": "npm run build && electron-builder -mw",
+    "postinstall": "if [ \"$npm_config_platform\" = 'win32' ] || [ \"$(uname)\" = 'Windows_NT' ]; then electron-rebuild; fi"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@types/express": "^4.17.21",
     "@types/node": "^22.5.0",
     "electron": "^42.2.0",
@@ -39,6 +41,9 @@
   "dependencies": {
     "electron-updater": "^6.8.3",
     "express": "^4.21.0"
+  },
+  "optionalDependencies": {
+    "@thiagoelg/node-printer": "^0.6.2"
   },
   "build": {
     "appId": "com.stagship.printagent",
@@ -56,6 +61,9 @@
       "!**/*.map"
     ],
     "asar": true,
+    "asarUnpack": [
+      "**/node_modules/@thiagoelg/node-printer/**"
+    ],
     "afterPack": "./scripts/strip-xattrs.js",
     "publish": [
       {

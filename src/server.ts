@@ -14,6 +14,18 @@ import type { Server } from "http";
 import { sendToPrinter, probeIp } from "./printer";
 import { getConfig, saveConfig } from "./config";
 
+/** Minimal shape of the node-printer native addon used for USB/driver printing. */
+interface NodePrinterModule {
+  getPrinters(): Array<{ name: string; [key: string]: unknown }>;
+  printDirect(opts: {
+    data: string | Buffer;
+    printer?: string;
+    type: string;
+    success: (jobId: string) => void;
+    error: (err: Error) => void;
+  }): void;
+}
+
 const ALLOWED_ORIGINS = new Set<string>([
   "https://stagship.com",
   "https://www.stagship.com",
@@ -95,24 +107,78 @@ export function startServer(port = 12345): Promise<Server> {
     }
 
     const cfg = getConfig();
-    if (!cfg.zebraPrinterIp) {
-      res.status(503).json({
-        success: false,
-        error: "No label printer configured — open the agent and set the Zebra IP first.",
-      });
-      return;
-    }
+    const mode = cfg.zebraPrintMode ?? "usb";
 
-    // ZPL is plain ASCII text — send it as UTF-8 bytes (ASCII is a subset).
-    const bytes = Buffer.from(body.zpl, "utf8");
+    if (mode === "usb") {
+      const printerName = cfg.zebraPrinterName;
+      if (!printerName) {
+        res.status(503).json({
+          success: false,
+          error: "No USB label printer configured — open the agent and select a printer.",
+        });
+        return;
+      }
 
-    try {
-      await sendToPrinter(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, bytes);
-      saveConfig({ lastZebraPing: "ok" });
-      res.json({ success: true });
-    } catch (e) {
-      saveConfig({ lastZebraPing: "fail" });
-      res.status(502).json({ success: false, error: (e as Error).message });
+      if (process.platform !== "win32") {
+        console.warn("[print-label] USB printing attempted on non-Windows platform — skipped.");
+        res.status(503).json({
+          success: false,
+          error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine.",
+        });
+        return;
+      }
+
+      let nodePrinter: NodePrinterModule;
+      try {
+        // @thiagoelg/node-printer is an optional native addon that is only
+        // compiled on Windows (via electron-rebuild in postinstall). Require'd
+        // at runtime so the TypeScript build succeeds on Mac/Linux.
+        nodePrinter = require("@thiagoelg/node-printer") as NodePrinterModule;
+      } catch {
+        res.status(503).json({
+          success: false,
+          error: "node-printer module not available — please reinstall the Print Agent.",
+        });
+        return;
+      }
+
+      try {
+        await new Promise<void>((resolve, reject) => {
+          nodePrinter.printDirect({
+            data: body.zpl as string,
+            printer: printerName,
+            type: "RAW",
+            success: () => resolve(),
+            error: (err) => reject(err),
+          });
+        });
+        saveConfig({ lastZebraPing: "ok" });
+        res.json({ success: true });
+      } catch (e) {
+        saveConfig({ lastZebraPing: "fail" });
+        res.status(502).json({ success: false, error: (e as Error).message });
+      }
+    } else {
+      // IP / TCP mode — send ZPL bytes directly to the printer socket.
+      if (!cfg.zebraPrinterIp) {
+        res.status(503).json({
+          success: false,
+          error: "No label printer IP configured — open the agent and set the Zebra IP first.",
+        });
+        return;
+      }
+
+      // ZPL is plain ASCII text — send it as UTF-8 bytes (ASCII is a subset).
+      const bytes = Buffer.from(body.zpl, "utf8");
+
+      try {
+        await sendToPrinter(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, bytes);
+        saveConfig({ lastZebraPing: "ok" });
+        res.json({ success: true });
+      } catch (e) {
+        saveConfig({ lastZebraPing: "fail" });
+        res.status(502).json({ success: false, error: (e as Error).message });
+      }
     }
   });
 

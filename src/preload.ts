@@ -9,6 +9,8 @@ import { contextBridge, ipcRenderer } from "electron";
 export type AgentConfig = {
   printerIp?: string;
   printerPort?: number;
+  zebraPrintMode?: "usb" | "ip";
+  zebraPrinterName?: string;
   zebraPrinterIp?: string;
   zebraPrinterPort?: number;
   autoStart?: boolean;
@@ -35,6 +37,11 @@ const api = {
       ipcRenderer.off("printer:scan-progress", handler);
     });
   },
+  /**
+   * List OS-installed printers by name (for the USB printer dropdown).
+   * Returns an empty array when node-printer is not available.
+   */
+  listPrinters: (): Promise<string[]> => ipcRenderer.invoke("printer:list"),
   getAutoStart: (): Promise<boolean> => ipcRenderer.invoke("autostart:get"),
   getVersion: (): Promise<string> => ipcRenderer.invoke("app:get-version"),
 };

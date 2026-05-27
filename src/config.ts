@@ -16,7 +16,16 @@ export type AgentConfig = {
   /** Receipt printer (Epson TM-m30III, ESC/POS over TCP). */
   printerIp?: string;
   printerPort?: number;
-  /** Label printer (Zebra ZD-series, ZPL over TCP). */
+  /**
+   * Label printer connection mode.
+   * 'usb'  — send ZPL through the OS print spooler (driver-based, node-printer).
+   * 'ip'   — send ZPL directly over a raw TCP socket to zebraPrinterIp:zebraPrinterPort.
+   * Defaults to 'usb' when not set.
+   */
+  zebraPrintMode?: "usb" | "ip";
+  /** Label printer name as reported by the OS (USB / driver mode). */
+  zebraPrinterName?: string;
+  /** Label printer (Zebra ZD-series, ZPL over TCP — IP mode). */
   zebraPrinterIp?: string;
   zebraPrinterPort?: number;
   autoStart?: boolean;
