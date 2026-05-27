@@ -117,7 +117,7 @@ export function startServer(port = 12345): Promise<Server> {
       }
 
       try {
-        await sendRawToWindowsPrinter(printerName, body.zpl as string);
+        sendRawToWindowsPrinter(printerName, body.zpl as string);
         saveConfig({ lastZebraPing: "ok" });
         res.json({ success: true });
       } catch (e) {

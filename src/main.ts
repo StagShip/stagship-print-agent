@@ -382,7 +382,7 @@ async function runTestLabel(): Promise<{ success: boolean; error?: string }> {
       return { success: false, error: "No USB label printer configured." };
     }
     try {
-      await sendRawToWindowsPrinter(cfg.zebraPrinterName, buildTestLabelZpl());
+      sendRawToWindowsPrinter(cfg.zebraPrinterName, buildTestLabelZpl());
       setLabelStatus(true);
       return { success: true };
     } catch (err) {
