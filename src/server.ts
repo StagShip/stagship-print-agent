@@ -13,18 +13,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import type { Server } from "http";
 import { sendToPrinter, probeIp } from "./printer";
 import { getConfig, saveConfig } from "./config";
-
-/** Minimal shape of the node-printer native addon used for USB/driver printing. */
-interface NodePrinterModule {
-  getPrinters(): Array<{ name: string; [key: string]: unknown }>;
-  printDirect(opts: {
-    data: string | Buffer;
-    printer?: string;
-    type: string;
-    success: (jobId: string) => void;
-    error: (err: Error) => void;
-  }): void;
-}
+import { sendRawToWindowsPrinter } from "./win-printer";
 
 const ALLOWED_ORIGINS = new Set<string>([
   "https://stagship.com",
@@ -110,6 +99,14 @@ export function startServer(port = 12345): Promise<Server> {
     const mode = cfg.zebraPrintMode ?? "usb";
 
     if (mode === "usb") {
+      if (process.platform !== "win32") {
+        res.status(503).json({
+          success: false,
+          error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine.",
+        });
+        return;
+      }
+
       const printerName = cfg.zebraPrinterName;
       if (!printerName) {
         res.status(503).json({
@@ -119,39 +116,8 @@ export function startServer(port = 12345): Promise<Server> {
         return;
       }
 
-      if (process.platform !== "win32") {
-        console.warn("[print-label] USB printing attempted on non-Windows platform — skipped.");
-        res.status(503).json({
-          success: false,
-          error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine.",
-        });
-        return;
-      }
-
-      let nodePrinter: NodePrinterModule;
       try {
-        // @thiagoelg/node-printer is an optional native addon that is only
-        // compiled on Windows (via electron-rebuild in postinstall). Require'd
-        // at runtime so the TypeScript build succeeds on Mac/Linux.
-        nodePrinter = require("@thiagoelg/node-printer") as NodePrinterModule;
-      } catch {
-        res.status(503).json({
-          success: false,
-          error: "node-printer module not available — please reinstall the Print Agent.",
-        });
-        return;
-      }
-
-      try {
-        await new Promise<void>((resolve, reject) => {
-          nodePrinter.printDirect({
-            data: body.zpl as string,
-            printer: printerName,
-            type: "RAW",
-            success: () => resolve(),
-            error: (err) => reject(err),
-          });
-        });
+        await sendRawToWindowsPrinter(printerName, body.zpl as string);
         saveConfig({ lastZebraPing: "ok" });
         res.json({ success: true });
       } catch (e) {

@@ -24,28 +24,7 @@ import { getConfig, saveConfig } from "./config";
 import { sendToPrinter, probeIp, buildTestReceiptBytes } from "./printer";
 import { discoverPrinters } from "./discovery";
 import { startServer } from "./server";
-
-/** Minimal shape of the node-printer native addon used for USB/driver printing. */
-interface NodePrinterModule {
-  getPrinters(): Array<{ name: string; [key: string]: unknown }>;
-  printDirect(opts: {
-    data: string | Buffer;
-    printer?: string;
-    type: string;
-    success: (jobId: string) => void;
-    error: (err: Error) => void;
-  }): void;
-}
-
-function tryLoadNodePrinter(): NodePrinterModule | null {
-  if (process.platform !== "win32") return null;
-  try {
-    // Optional native addon — only compiled on Windows via electron-rebuild.
-    return require("@thiagoelg/node-printer") as NodePrinterModule;
-  } catch {
-    return null;
-  }
-}
+import { sendRawToWindowsPrinter, listWindowsPrinters } from "./win-printer";
 
 const HTTP_PORT = 12345;
 const PING_INTERVAL_MS = 30_000;
@@ -395,26 +374,15 @@ async function runTestLabel(): Promise<{ success: boolean; error?: string }> {
   const mode = cfg.zebraPrintMode ?? "usb";
 
   if (mode === "usb") {
+    if (process.platform !== "win32") {
+      return { success: false, error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine." };
+    }
     if (!cfg.zebraPrinterName) {
       openSettings();
       return { success: false, error: "No USB label printer configured." };
     }
-    const np = tryLoadNodePrinter();
-    if (!np) {
-      return process.platform !== "win32"
-        ? { success: false, error: "USB printing is only supported on Windows. Switch to IP/Network mode on this machine." }
-        : { success: false, error: "node-printer module not available — please reinstall the Print Agent." };
-    }
     try {
-      await new Promise<void>((resolve, reject) => {
-        np.printDirect({
-          data: buildTestLabelZpl(),
-          printer: cfg.zebraPrinterName,
-          type: "RAW",
-          success: () => resolve(),
-          error: (err) => reject(err),
-        });
-      });
+      await sendRawToWindowsPrinter(cfg.zebraPrinterName, buildTestLabelZpl());
       setLabelStatus(true);
       return { success: true };
     } catch (err) {
@@ -469,15 +437,7 @@ ipcMain.handle("config:save", async (_e, patch: Record<string, unknown>) => {
 ipcMain.handle("printer:test", () => runTestPrint());
 ipcMain.handle("printer:test-label", () => runTestLabel());
 
-ipcMain.handle("printer:list", (): string[] => {
-  const np = tryLoadNodePrinter();
-  if (!np) return [];
-  try {
-    return np.getPrinters().map((p) => p.name);
-  } catch {
-    return [];
-  }
-});
+ipcMain.handle("printer:list", (): Promise<string[]> => listWindowsPrinters());
 
 ipcMain.handle("printer:scan", async (event) => {
   const send = (frac: number) => {

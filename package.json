@@ -41,9 +41,6 @@
     "electron-updater": "^6.8.3",
     "express": "^4.21.0"
   },
-  "optionalDependencies": {
-    "@thiagoelg/node-printer": "^0.6.2"
-  },
   "build": {
     "appId": "com.stagship.printagent",
     "productName": "Stagship Print Agent",
@@ -60,9 +57,6 @@
       "!**/*.map"
     ],
     "asar": true,
-    "asarUnpack": [
-      "**/node_modules/@thiagoelg/node-printer/**"
-    ],
     "afterPack": "./scripts/strip-xattrs.js",
     "publish": [
       {
