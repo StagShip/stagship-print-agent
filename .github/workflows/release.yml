@@ -28,6 +28,11 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,7 +40,11 @@ jobs:
       # Electron's own Node headers so the .node binary matches the runtime.
       # This is the step that produces the correct win32/x64 .node file that
       # gets extracted by asarUnpack at install time.
+      # PYTHON env var ensures node-gyp picks up the Python 3.11 binary
+      # (Python 3.12+ removed distutils which node-gyp requires).
       - name: Rebuild native addons for Electron
+        env:
+          PYTHON: python
         run: npx electron-builder install-app-deps
 
       - name: Build + publish
