@@ -31,6 +31,9 @@ function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Max-Age", "86400");
+  // Chrome Private Network Access: allow requests from public HTTPS origins
+  // (e.g. stagship.com) to reach this 127.0.0.1 server.
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
   if (req.method === "OPTIONS") {
     res.status(204).end();
     return;
