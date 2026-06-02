@@ -25,6 +25,7 @@ import { sendToPrinter, probeIp, buildTestReceiptBytes } from "./printer";
 import { discoverPrinters } from "./discovery";
 import { startServer } from "./server";
 import { sendRawToWindowsPrinter, listWindowsPrinters } from "./win-printer";
+import { getZebraPrintMode } from "./zebra-mode";
 
 const HTTP_PORT = 12345;
 const PING_INTERVAL_MS = 30_000;
@@ -155,9 +156,8 @@ async function applyAutoStartFromConfig(): Promise<void> {
 function computeTrayState(): TrayState {
   const cfg = getConfig();
   const hasReceipt = !!cfg.printerIp;
-  const hasLabel   = (cfg.zebraPrintMode ?? "usb") === "usb"
-    ? !!cfg.zebraPrinterName
-    : !!cfg.zebraPrinterIp;
+  const zebraMode = getZebraPrintMode(cfg);
+  const hasLabel = zebraMode === "usb" ? !!cfg.zebraPrinterName : !!cfg.zebraPrinterIp;
   if (!hasReceipt && !hasLabel) return "red";
 
   const receiptOk = hasReceipt && receiptOnline;
@@ -199,7 +199,7 @@ function rebuildMenu(): void {
       ? `Receipt: online — ${cfg.printerIp}`
       : `Receipt: offline — ${cfg.printerIp}`;
 
-  const zebraMode = cfg.zebraPrintMode ?? "usb";
+  const zebraMode = getZebraPrintMode(cfg);
   const zebraIsUsb = zebraMode === "usb";
   const zebraIdentifier = zebraIsUsb ? cfg.zebraPrinterName : cfg.zebraPrinterIp;
   const labelLabel = !zebraIdentifier
@@ -321,7 +321,7 @@ async function pingBoth(): Promise<void> {
   setReceiptStatus(receiptOk);
 
   let labelOk: boolean;
-  if ((cfg.zebraPrintMode ?? "usb") === "usb") {
+  if (getZebraPrintMode(cfg) === "usb") {
     // USB/driver mode: treat the printer as reachable when a name is configured.
     // There is no meaningful TCP probe for a spooler-managed printer.
     labelOk = !!cfg.zebraPrinterName;
@@ -371,7 +371,7 @@ function buildTestLabelZpl(): string {
 
 async function runTestLabel(): Promise<{ success: boolean; error?: string }> {
   const cfg = getConfig();
-  const mode = cfg.zebraPrintMode ?? "usb";
+  const mode = getZebraPrintMode(cfg);
 
   if (mode === "usb") {
     if (process.platform !== "win32") {

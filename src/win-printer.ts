@@ -3,38 +3,48 @@
  *
  * Printing uses the Win32 winspool.drv API via inline C# compiled by
  * PowerShell Add-Type. The job is submitted with pDataType="RAW" so ZPL
- * bytes reach the Zebra driver unmodified — the driver interprets them
- * directly rather than routing through GDI text rendering.
- *
- * The legacy `cmd /c print /D:` approach returned exit 0 on modern Windows
- * USB queues but never actually spooled the job, so it has been replaced.
- *
- * All exports are no-ops / empty results on non-Windows platforms.
+ * bytes reach the Zebra driver unmodified.
  */
-import { execFile, execSync } from "child_process";
+import { execFile, execFileSync } from "child_process";
+import { existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { writeFileSync, unlinkSync } from "fs";
 
+/** Packaged Electron apps often have a stripped PATH — resolve PowerShell explicitly. */
+export function resolvePowerShellExe(): string {
+  const windir = process.env.SystemRoot || process.env.windir || "C:\\Windows";
+  const candidates = [
+    join(windir, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+    join(windir, "Sysnative", "WindowsPowerShell", "v1.0", "powershell.exe"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return "powershell.exe";
+}
+
 /** List all printers installed on the local Windows system. */
 export async function listWindowsPrinters(): Promise<string[]> {
   if (process.platform !== "win32") return [];
+  const ps = resolvePowerShellExe();
   return new Promise((resolve) => {
     execFile(
-      "powershell",
+      ps,
       [
         "-NoProfile",
         "-NonInteractive",
         "-Command",
         "Get-Printer | Select-Object -ExpandProperty Name | ConvertTo-Json -Compress",
       ],
-      { timeout: 10_000 },
+      { timeout: 10_000, windowsHide: true },
       (err, stdout) => {
-        if (err || !stdout.trim()) { resolve([]); return; }
+        if (err || !stdout.trim()) {
+          resolve([]);
+          return;
+        }
         try {
           const parsed: unknown = JSON.parse(stdout.trim());
-          // ConvertTo-Json returns a bare string (not array) when there is only
-          // one printer, so normalise to an array in all cases.
           resolve(Array.isArray(parsed) ? (parsed as string[]) : [String(parsed)]);
         } catch {
           resolve([]);
@@ -46,14 +56,6 @@ export async function listWindowsPrinters(): Promise<string[]> {
 
 /**
  * Send a ZPL label to a named Windows printer using the Win32 raw print API.
- *
- * Writes the ZPL string to a temp .zpl file and a PowerShell script to a
- * temp .ps1 file. The script uses Add-Type to compile a small C# class that
- * calls OpenPrinter / StartDocPrinter (pDataType="RAW") / WritePrinter /
- * EndDocPrinter — the same sequence used by every Zebra-certified Windows
- * print utility. The RAW data type tells the spooler to pass bytes straight
- * to the driver without any GDI processing.
- *
  * Throws on any failure.
  */
 export function sendRawToWindowsPrinter(
@@ -70,10 +72,7 @@ export function sendRawToWindowsPrinter(
   const tmpPs1 = join(tmpdir(), `stagship-print-${ts}.ps1`);
   writeFileSync(tmpZpl, zpl, "utf8");
 
-  // Escape single quotes in values embedded in single-quoted PS strings.
   const safeName = printerName.replace(/'/g, "''");
-  // tmpZpl only contains digits, letters, backslashes, colons, and dots —
-  // no escaping needed for a single-quoted PS string.
 
   const script = `
 Add-Type -Language CSharp -TypeDefinition @'
@@ -134,13 +133,23 @@ public static class RawPrinter {
 
   writeFileSync(tmpPs1, script, "utf8");
 
+  const ps = resolvePowerShellExe();
   try {
-    execSync(
-      `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${tmpPs1}"`,
-      { timeout: 30_000, stdio: "pipe" },
+    execFileSync(
+      ps,
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", tmpPs1],
+      { timeout: 30_000, stdio: "pipe", windowsHide: true },
     );
   } finally {
-    try { unlinkSync(tmpZpl); } catch { /* best-effort cleanup */ }
-    try { unlinkSync(tmpPs1); } catch { /* best-effort cleanup */ }
+    try {
+      unlinkSync(tmpZpl);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      unlinkSync(tmpPs1);
+    } catch {
+      /* best-effort */
+    }
   }
 }

@@ -14,6 +14,7 @@ import type { Server } from "http";
 import { sendToPrinter, probeIp } from "./printer";
 import { getConfig, saveConfig } from "./config";
 import { sendRawToWindowsPrinter } from "./win-printer";
+import { getZebraPrintMode } from "./zebra-mode";
 
 const ALLOWED_ORIGINS = new Set<string>([
   "https://stagship.com",
@@ -118,7 +119,7 @@ export function startServer(port = 12345): Promise<Server> {
     }
 
     const cfg = getConfig();
-    const mode = cfg.zebraPrintMode ?? "usb";
+    const mode = getZebraPrintMode(cfg);
 
     if (mode === "usb") {
       if (process.platform !== "win32") {
