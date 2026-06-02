@@ -86,11 +86,30 @@ export function startServer(port = 12345): Promise<Server> {
   });
 
   app.post("/print-label", async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as { zpl?: unknown };
-    if (typeof body.zpl !== "string" || body.zpl.length === 0) {
+    const body = (req.body ?? {}) as { zpl?: unknown; url?: unknown };
+
+    // Accept either a pre-fetched ZPL string or a remote URL to fetch from.
+    // The URL path is preferred by the web client — it lets Node.js do the
+    // fetch (no CORS restrictions) instead of the browser.
+    let zplString: string;
+    if (typeof body.url === "string" && body.url.length > 0) {
+      try {
+        const r = await fetch(body.url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        zplString = await r.text();
+      } catch (e) {
+        res.status(502).json({
+          success: false,
+          error: `Failed to fetch ZPL from URL: ${(e as Error).message}`,
+        });
+        return;
+      }
+    } else if (typeof body.zpl === "string" && body.zpl.length > 0) {
+      zplString = body.zpl;
+    } else {
       res.status(400).json({
         success: false,
-        error: "Missing or empty 'zpl' field (expected ZPL string).",
+        error: "Missing or empty 'zpl' string or 'url' field (expected ZPL string or label URL).",
       });
       return;
     }
@@ -117,7 +136,7 @@ export function startServer(port = 12345): Promise<Server> {
       }
 
       try {
-        sendRawToWindowsPrinter(printerName, body.zpl as string);
+        sendRawToWindowsPrinter(printerName, zplString);
         saveConfig({ lastZebraPing: "ok" });
         res.json({ success: true });
       } catch (e) {
@@ -135,7 +154,7 @@ export function startServer(port = 12345): Promise<Server> {
       }
 
       // ZPL is plain ASCII text — send it as UTF-8 bytes (ASCII is a subset).
-      const bytes = Buffer.from(body.zpl, "utf8");
+      const bytes = Buffer.from(zplString, "utf8");
 
       try {
         await sendToPrinter(cfg.zebraPrinterIp, cfg.zebraPrinterPort ?? 9100, bytes);
